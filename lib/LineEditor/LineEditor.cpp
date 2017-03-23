@@ -103,6 +103,7 @@ struct LineEditor::InternalData {
   EditLine *EL;
 
   unsigned PrevCount;
+  bool RefreshRPrompt;
   std::string ContinuationOutput;
 
   FILE *Out;
@@ -116,6 +117,20 @@ const char *ElGetPromptFn(EditLine *EL) {
     return Data->LE->getPrompt().c_str();
   return "> ";
 }
+
+const char *ElGetRightPromptFn(EditLine *EL) {
+  LineEditor::InternalData *Data;
+  if (el_get(EL, EL_CLIENTDATA, &Data) == 0) {
+    if ( Data->RefreshRPrompt ) {
+      Data->RefreshRPrompt = false;
+      return "";  
+    }
+    const LineInfo *LI = ::el_line(EL);
+    return Data->LE->getRightPrompt(StringRef(LI->buffer, LI->lastchar - LI->buffer)).c_str();
+  }
+  return "";
+}
+
 
 // Handles tab completion.
 //
@@ -187,6 +202,8 @@ unsigned char ElCompletionFn(EditLine *EL, int ch) {
         // the distance between end of line and the original cursor position.
         Data->PrevCount = LI->lastchar - LI->cursor;
 
+	Data->RefreshRPrompt = true;
+
         return CC_REFRESH;
       }
     }
@@ -199,7 +216,7 @@ unsigned char ElCompletionFn(EditLine *EL, int ch) {
 LineEditor::LineEditor(StringRef ProgName, StringRef HistoryPath, FILE *In,
                        FILE *Out, FILE *Err)
     : Prompt((ProgName + "> ").str()), HistoryPath(HistoryPath),
-      Data(new InternalData) {
+      Data(new InternalData{}) {
   if (HistoryPath.empty())
     this->HistoryPath = getDefaultHistoryPath(ProgName);
 
@@ -213,6 +230,7 @@ LineEditor::LineEditor(StringRef ProgName, StringRef HistoryPath, FILE *In,
   assert(Data->EL);
 
   ::el_set(Data->EL, EL_PROMPT, ElGetPromptFn);
+  ::el_set(Data->EL, EL_RPROMPT, ElGetRightPromptFn);
   ::el_set(Data->EL, EL_EDITOR, "emacs");
   ::el_set(Data->EL, EL_HIST, history, Data->Hist);
   ::el_set(Data->EL, EL_ADDFN, "tab_complete", "Tab completion function",
@@ -252,6 +270,35 @@ void LineEditor::loadHistory() {
     HistEvent HE;
     ::history(Data->Hist, &HE, H_LOAD, HistoryPath.c_str());
   }
+}
+
+std::string LineEditor::getRightPrompt(StringRef&& Line) const {
+  unsigned missing = 0;
+  unsigned extra = 0;
+  int count = 0;
+  for (auto&& ch : Line) {
+    if (ch == '(') {
+      count++;
+    } else if (ch == ')') {
+      if (count > 0)
+	count--;
+      else
+        extra++;
+    }
+  }
+  missing = count;
+  std::string parens;
+  if (missing) {
+    parens = " missing ";
+    while(missing--)
+	parens += ")";
+  }
+  if (extra) {
+    parens += " extra ";
+    while(extra--)
+	parens += ")";
+  }
+  return RightPrompt + parens;
 }
 
 Optional<std::string> LineEditor::readLine() const {

@@ -106,11 +106,15 @@ public:
   const std::string &getPrompt() const { return Prompt; }
   void setPrompt(const std::string &P) { Prompt = P; }
 
+  std::string getRightPrompt(StringRef&&) const;
+  void setRightPrompt(const std::string &P) { RightPrompt = P; }
+
   // Public so callbacks in LineEditor.cpp can use it.
   struct InternalData;
 
 private:
   std::string Prompt;
+  std::string RightPrompt;
   std::string HistoryPath;
   std::unique_ptr<InternalData> Data;
 
